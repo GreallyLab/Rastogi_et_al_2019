@@ -1,0 +1,110 @@
+---
+title: "Linking enhancers to Ensembl IDs"
+author: "Andrew Johnston"
+date: "12/06/2017"
+output:
+  html_document:
+  css: styles.css
+toc: yes
+toc_depth: 4
+pdf_document:
+  toc: yes
+word_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
+#setwd("/Volumes/home-1/greally-lab/Deepa_Andrew/Deepa-helptagging/CpG_Annotations/")
+```
+
+```{r packages, echo=TRUE, warning=FALSE, message = FALSE}
+# load in libraries
+#source("https://bioconductor.org/biocLite.R")
+#biocLite("ChIPseeker")
+library(ChIPseeker)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(org.Hs.eg.db)
+
+# set options
+options(scipen=999, stringsAsFactors = FALSE)
+```
+
+Loading in the custom enhancer list that I had made (see Compare_annotations.rmd)
+```{r load-enhancer-set, echo=TRUE, warning=FALSE, message = FALSE}
+enh_file <- "ATAC_ens_enh_hg38_no10kb_merged.bed"
+enhancers <- readPeakFile(enh_file)
+enhancers
+```
+
+I tried to generate some plots looking at the distribution of enhancers around the TSS but these are very time intensive so I chose not to run this code for the rmd output.  
+```{r plot-enh-genomic-dist, echo=TRUE, warning=FALSE, message = FALSE, eval=FALSE}
+promoter_10kb <- getPromoters(TxDb=TxDb.Hsapiens.UCSC.hg38.knownGene, upstream=10000, downstream=10000)
+tagMatrix_10kb <- getTagMatrix(enhancers, windows=promoter_10kb)
+
+promoter_50kb <- getPromoters(TxDb=TxDb.Hsapiens.UCSC.hg38.knownGene, upstream=50000, downstream=50000)
+tagMatrix_50kb <- getTagMatrix(enhancers, windows=promoter_50kb)
+
+tagHeatmap(tagMatrix_10kb, xlim=c(-10000, 10000), color="red")
+tagHeatmap(tagMatrix_50kb, xlim=c(-50000, 50000), color="red")
+
+plotAvgProf(tagMatrix_10kb, xlim=c(-10000, 10000),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrix_50kb, xlim=c(-50000, 50000),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+covplot(enhancers, weightCol=NULL)
+```
+
+Here I create the annotation tables
+```{r anno-enhancers-trans, echo=TRUE, warning=FALSE, message = FALSE}
+enhAnno <- annotatePeak(enhancers, tssRegion=c(-3000, 3000),
+                        TxDb=TxDb.Hsapiens.UCSC.hg38.knownGene, 
+                        annoDb="org.Hs.eg.db")
+enhAnno # 65494/65510  peaks were annotated
+saveRDS(enhAnno, "enhAnno.rds")
+
+enhAnno_df <- as.data.frame(enhAnno)
+tail(enhAnno_df)
+sum(is.na(enhAnno_df$ENSEMBL))
+colnames(enhAnno_df)
+tail(enhAnno_df)
+summary(enhAnno_df$distanceToTSS)
+
+# to get rid of unnecessary columns
+enhAnno_df_2 <- enhAnno_df[,-c(7:8,10:16)]
+head(enhAnno_df_2)
+
+# I commented this out because it takes forever to run.
+# write shortened table
+# write.table(enhAnno_df_2, "Enhancer_annotations.txt", append = F, quote = F,
+#            col.names = T, row.names = F, sep = "\t", na = "NA")
+# write full table
+# write.table(enhAnno_df, "Enhancer_annotations_allCols.txt", append = F, quote = F,
+#            col.names = T, row.names = F, sep = "\t", na = "NA")
+```
+
+One can also annotate on the closest gene instead of transcript but this doesn't seem to work. For whatever reason, annotating based on the gene instead of transcript doesn't seem to pick the closest gene.
+```{r anno-enhancers-gene, echo=TRUE, warning=FALSE, message = FALSE}
+enhAnno_gene <- annotatePeak(enhancers, tssRegion=c(-3000, 3000),
+                             TxDb=TxDb.Hsapiens.UCSC.hg38.knownGene,
+                             annoDb="org.Hs.eg.db", level = "gene",
+                             overlap="all")
+enhAnno_gene # 65486/65510  peaks were annotated
+enhAnno_gene_df <- as.data.frame(enhAnno_gene)
+head(enhAnno_gene_df)
+tail(enhAnno_gene_df)
+summary(enhAnno_gene_df$distanceToTSS)
+```
+
+Just some interesting plots demonstrating the distribution of annotations that go along with the ChIPSeeker package. 
+```{r plot-anno, echo=TRUE, warning=FALSE, message = FALSE}
+plotAnnoPie(enhAnno)
+plotAnnoBar(enhAnno)
+vennpie(enhAnno)
+upsetplot(enhAnno)
+#upsetplot(enhAnno, vennpie=TRUE)
+plotDistToTSS(enhAnno,
+              title="Distribution of enhancer regions relative to TSS")
+
+```

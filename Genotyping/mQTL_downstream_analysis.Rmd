@@ -1,0 +1,353 @@
+---
+title: "Downstream Analysis of mQTLs"
+author: "Andrew D. Johnston"
+date: "08/28/2018"
+output:
+  html_document:
+  css: styles.css
+toc: yes
+toc_depth: 4
+pdf_document:
+  toc: yes
+word_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+```{r packages,echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+# load in libraries
+library(data.table)
+library(knitr)
+library(ggplot2)
+library(qqman)
+library(tidyr)
+library(dplyr)
+library(ggrepel)
+library(RColorBrewer)
+library(ggthemes)
+
+#setting options
+options(scipen=999, stringsAsFactors = FALSE)
+
+# set directory
+#setwd("/Volumes/home/greally-lab/Deepa_Andrew/mQTL/Validate/SNP_plots")
+```
+
+In order to create manhattan plots, I needed to obtain the nominal pvalues for all mQTLs using QTLtools. I also had to remove a large proportion of mQTLs by using a pvalue threshold. Otherwise, the dataset would be much to large to make visulaizations in R. 
+
+```{bash nominal-code, echo=TRUE, warning=FALSE, message = FALSE, eval = FALSE}
+cd /home/greally-lab/Deepa_Andrew/mQTL/Nominal
+
+mkdir nominal_14_610_12_all
+cd nominal_14_610_12_all
+
+for j in $(seq 1 200);
+do
+qsub -S /bin/bash -N mQTL_${j}_chunk -cwd -R y -l h_vmem=5.6G -j y << EOF
+module load QTLtools/1.1/gcc.4.7.4
+QTLtools cis --vcf ../../Genotype2/SplX_converted_noHH_mQTL_snpfilt_hg38_sort.vcf.gz --bed ../../Quants/all_meth_nona_mQTL_filt_2_nochr.bed.gz --cov ../Cov_2PC_geno_1-4_6-10_12_PC_meth.txt.gz --nominal 1 --normal --window 1000000 --chunk $j 200 --out nom_$j\_200.txt
+EOF
+done
+
+
+ # combine the permutation files together
+cat nom_*200.txt > chunk_full.txt
+wc -l chunk_full.txt
+ # 29,387,9241
+
+awk '{OFS="\t"; print $1,$3,$8,$9,$10,$12,$14}' chunk_full.txt > chunk_full_short1.txt
+awk '$12 < 0.05 {OFS="\t"; print $1,$3,$8,$9,$10,$12,$14}' chunk_full.txt > chunk_full_short.txt
+awk '$12 < 0.0005 {OFS="\t"; print $1,$3,$8,$9,$10,$12,$14}' chunk_full.txt > chunk_full_short2.txt
+
+>>
+```
+
+I then began to play around with different manhattan plots to visualize the data.
+Coding inspiration from https://www.r-graph-gallery.com/wp-content/uploads/2018/02/Manhattan_plot_in_R.html 
+
+```{r manhattan_plots, echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+mQTL_results <- fread("../../Nominal/nominal_14_610_12_all/chunk_full_short2.txt")
+head(mQTL_results)
+colnames(mQTL_results) <- c("CpG", "CpG_pos", "SNP", "SNP_CHR", "SNP_pos", "pval", "Top_cis")
+dim(mQTL_results) # 300136  7
+length(unique(mQTL_results$CpG)) # 132,245 CpGs
+
+# what is the range for final mQTLs
+mQTL_final <- read.table("mQTL_final3.txt")
+head(mQTL_final)
+dim(mQTL_final)
+mQTL_final$name <- paste(mQTL_final$V1, mQTL_final$V8, sep="-")
+range(mQTL_final$V13)
+
+sum(mQTL_results$pval < 0.01)
+sum(mQTL_results$pval < 0.001)
+sum(mQTL_results$pval < 0.0005) # 300136
+
+mQTL_results_filt <- mQTL_results[mQTL_results$pval <0.0005,]
+manhattan(mQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="SNP", p="pval")
+
+mQTL_top_cis_name <- mQTL_results[mQTL_results$Top_cis == 1, c(1,3,6)]
+dim(mQTL_top_cis_name)
+range(mQTL_top_cis_name$pval) # I will be missing most of the CpG's top variant
+sum(mQTL_top_cis_name$pval < 0.0005) # 132245
+
+mQTL_top_cis_name$name <- paste(mQTL_top_cis_name$CpG,mQTL_top_cis_name$SNP, sep="-")
+mQTL_results_filt$name <- paste(mQTL_results_filt$CpG,mQTL_results_filt$SNP, sep="-")
+ # highlighting the top cis
+manhattan(mQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = mQTL_top_cis_name$name)
+title("Highlighting top cis variant for every CpG")
+
+ # highlight SNPs in final curated set
+mQTL_final <- read.table("mQTL_final3.txt")
+head(mQTL_final)
+dim(mQTL_final)
+mQTL_final$name <- paste(mQTL_final$V1, mQTL_final$V8, sep="-")
+
+range(mQTL_final$V13)
+
+manhattan(mQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = mQTL_final$name)
+title("Highlighting significant variants after permutation testing")
+
+
+ # highlight SNPs that repeat
+sum(duplicated(mQTL_final$V8)) # 832
+name_dups <- mQTL_final[duplicated(mQTL_final$V8),8]
+length(unique(name_dups)) # 832
+dup_mQTL_CpG <- mQTL_final[mQTL_final$V8 %in% unique(name_dups), c(1,8)]
+dim(dup_mQTL_CpG) #1306   2
+head(dup_mQTL_CpG) 
+dup_mQTL_CpG$name <- paste(dup_mQTL_CpG$V1, dup_mQTL_CpG$V8, sep="-")
+manhattan(mQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = dup_mQTL_CpG$name)
+title("Highlighting significant variants after permutation testing: \n influencing more than 1 CpG")
+
+# distribution of variants affecting multiple genes (and how many genes they affect)
+table(table(as.character(dup_mQTL_CpG$V8)))
+
+head(mQTL_final)
+
+ # differentially methylated CpGs (Prom, GB, Enh)
+prom_diff <- read.csv("../../../prom_cpg.csv")
+head(prom_diff)
+nrow(prom_diff) # 1661
+
+body_diff <- read.csv("../../../body_cpg.csv")
+head(body_diff)
+nrow(body_diff) # 333
+
+enh_diff <- read.csv("../../../cisreg_cpg.csv")
+head(enh_diff)
+nrow(enh_diff) # 54
+
+# mQTL-CpG overlap - Prom
+mQTl_xtid <- do.call(rbind, strsplit(mQTL_final$V1, split = "_"))[,2]
+head(mQTl_xtid)
+length(mQTl_xtid)
+mQTL_prom <- mQTL_final[ which(mQTl_xtid %in% prom_diff$X.tid),]
+nrow(mQTL_prom) #18
+length(unique(mQTL_prom$V1)) #6
+
+# mQTL-CpG overlap - body
+mQTL_body <- mQTL_final[ which(mQTl_xtid %in% body_diff$X.tid),]
+nrow(mQTL_body) #7
+length(unique(mQTL_body$V1)) #4 unique CpGs
+
+# mQTL-CpG overlap - enh
+mQTL_enh <- mQTL_final[ which(mQTl_xtid %in% enh_diff$X.tid),]
+nrow(mQTL_enh) #2 
+length(unique(mQTL_enh$V1)) #2 unique CpGs
+
+sum(mQTL_body$V1 %in% mQTL_prom$V1)
+sum(mQTL_body$V1 %in% mQTL_enh$V1) #1
+sum(mQTL_enh$V1 %in% mQTL_prom$V1)
+
+which(mQTL_body$V1 %in% mQTL_enh$V1) #7
+
+head(mQTL_body)
+
+diff_meth_names <- c(mQTL_prom$name, mQTL_body$name[-7], mQTL_enh$name)
+
+manhattan(mQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = diff_meth_names)
+title("Highlighting mQTLs associated with insulin eGenes")
+```
+
+To create an accurate qqplot, all of the variants must be read-in. One would need a LOT of memory to perform this code chunk, so eval is FALSE.
+
+```{r qq_plots, echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+# load in data
+mQTL_results_full <- fread("../../Nominal/nominal_14_610_12_all/chunk_full_short1.txt")
+head(mQTL_results_full)
+nrow(mQTL_results_full)
+colnames(mQTL_results_full) <- c("CpG", "CpG_pos", "SNP", "SNP_CHR", "SNP_pos", "pval", "Top_cis")
+ # plot qqplot
+pdf("qqplot_1.pdf", width=4.5, height = 3, family="ArialMT")
+qq(mQTL_results_full$pval)
+dev.off()
+qq(mQTL_results_full$pval)
+```
+
+Now that the data is visualized, let's make some "prettier" manhattan plots. They variants associated with CpGs that were also foudn to be differentially methylated. We used previously defined annotation to label the variant clusters with the most likely affected gene. The CpGs were also seperated based on whether or not they were in promoter, gene body, or enhancer regions.
+
+For labeling, I used ggrepel packages. I used the following to sites for help implementing it: https://github.com/slowkow/ggrepel/issues/82 and https://github.com/slowkow/ggrepel/blob/master/vignettes/ggrepel.md
+
+```{r manhattan_plots-2, echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+# reducing the amount of points 
+
+sum( mQTL_results_filt$pval<0.001) # 300,136
+mQTL_results_filt2 <-  mQTL_results_filt[ mQTL_results_filt$pval <0.00001,]
+dim(mQTL_results_filt2) # 19586     8
+
+manhattan(mQTL_results_filt2, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = mQTL_final$name)
+title("Highlighting significant variants after permutation testing")
+
+# grab the variants for diff meth genes:
+# need to annotate the two SNPs to TPO
+# rs13391992 and rs13414537
+# for ZNF7, ACER3, DYM, C19orf53, PLA2G6, TPO, and GDF10
+meGenes <- c("ENSG00000147789", "ENSG00000078124", "ENSG00000141627", "ENSG00000104979", 
+  "ENSG00000184381", "ENSG00000115705", "ENSG00000266524")
+
+# grab the variants for Both meGenes and eGenes:
+# for PPP2R2C**, ADAMTS2*, PACSIN2*, PRKCG*, MAP1B*, ALDH1L1*, ITM2C*, CA10*, KLHDC2*, LARGE2*, ANKRD33* and MYO1C**
+EmeGenes <- c("ENSG00000074211", "ENSG00000087116", "ENSG00000100266", "ENSG00000126583",
+             "ENSG00000131711", "ENSG00000144908", "ENSG00000135916", "ENSG00000154975",
+             "ENSG00000165516", "ENSG00000165905", "ENSG00000167612", "ENSG00000197879")
+
+ # highlight the differentially methylated genes 
+mQTL_final_ens <- read.table("mQTL_final3_ENS.txt")
+head(mQTL_final_ens)
+mQTL_final_ens$name <- paste("CpG_",mQTL_final_ens$V1,"-",mQTL_final_ens$V8, sep = "")
+idx_TPO_CpG <- grep("CpG_198279", mQTL_final_ens$name)
+mQTL_final_ens[idx_TPO_CpG,21] <- "ENSG00000115705"
+
+write.table(mQTL_final_ens, "mQTL_final_ens2.txt", row.names=F, col.names = F, sep = "\t",
+            append = FALSE, quote = F)
+
+idx_meGenes <- grep(paste(meGenes, collapse = "|"), mQTL_final_ens$V21)
+names_meGenes <- mQTL_final_ens[idx_meGenes,22]
+
+idx_emgenes <- grep(paste(EmeGenes, collapse = "|"), mQTL_final_ens$V21)
+length(idx_emgenes)
+length(unique(mQTL_final_ens[idx_emgenes,21])) # MYO1C and PPP2RC twice
+names_emeGenes <- mQTL_final_ens[idx_emgenes,22]
+
+names_me_eme <- c(names_meGenes, names_emeGenes)
+length(names_me_eme) #44 
+
+me_eme_mQTL <- mQTL_results_filt2[grep(paste(names_me_eme, collapse = "|"), 
+                                            mQTL_results_filt2$name, value = FALSE) ]
+head(me_eme_mQTL)
+dim(me_eme_mQTL)
+sum(me_eme_mQTL$Top_cis) # 24, 12+7 = 19
+me_eme_mQTL_top <- me_eme_mQTL[me_eme_mQTL$Top_cis>0,]
+dim(me_eme_mQTL_top) #24
+
+# grab only top cis for the 11 CpGs
+mQTL_diffmeth_top <- mQTL_final_ens[mQTL_final_ens$name %in% me_eme_mQTL_top$name,]
+dim(mQTL_diffmeth_top)
+mQTL_diffmeth_top[15:16,c(17,21:22)]
+# remove rows 2, 8, 15, 19, 24 because they're the higher pvalue for "duplicate genes"
+mQTL_diffmeth_top_edit <- mQTL_diffmeth_top[-c(2, 8, 16, 20, 23),]
+dim(mQTL_diffmeth_top_edit)
+
+# I was lazy and since there's so few, I manually put in the gene symbols
+order_top_label <- c("ZNF7", "GDF10", "LARGE2", "ACER3", "ANKRD33", "KLHDC2", "MYO1C", "CA10", "DYM", "C19orf53", "TPO", "PRKCG", "PLA2G6", "PACSIN2", "ITM2C", "ALDH1L1", "PPP2R2C", "MAP1B", "ADAMTS2")
+length(order_top_label)
+mQTL_top_cis_ens_label <- data.frame(name=mQTL_diffmeth_top_edit$name,label=order_top_label)
+head(mQTL_top_cis_ens_label)
+
+dyplr_res <-mQTL_results_filt2 %>% 
+  
+  # Compute chromosome size
+  group_by(SNP_CHR) %>% 
+  summarise(chr_len=max(SNP_pos)) %>% 
+  
+  # Calculate cumulative position of each chromosome
+  mutate(tot=cumsum(chr_len)-chr_len) %>%
+  select(-chr_len) %>%
+  
+  # Add this info to the initial dataset
+  left_join(mQTL_results_filt2, ., by=c("SNP_CHR"="SNP_CHR")) %>%
+  
+  # Add a cumulative position of each SNP
+  arrange(SNP_CHR, SNP_pos) %>%
+  mutate(Chromosome=SNP_pos+tot) %>%
+
+ # Add highlight and annotation information
+  mutate( is_highlight=ifelse(name %in%  mQTL_final$name, 
+                              ifelse(name %in% names_meGenes, "DM-meGene", 
+                                     ifelse(name %in% names_emeGenes, "meGene + eGene", "mQTL")
+                                     ),
+                               "no")) %>%
+  mutate( is_annotate=ifelse(name %in% mQTL_diffmeth_top_edit$name, "yes", "no")) 
+  
+head(dyplr_res)
+table(dyplr_res$is_highlight)
+#      DM-meGene meGene + eGene           mQTL             no 
+#             22             22           4066          15476 
+table(dyplr_res$is_annotate)
+
+# read in labels
+order_label <- match(dyplr_res$name[dyplr_res$is_annotate=="yes"], mQTL_top_cis_ens_label$name)
+
+dyplr_res$label <- ""
+dyplr_res$label[dyplr_res$is_annotate=="yes"] <- mQTL_top_cis_ens_label$label[order_label]
+
+# color blind palette 
+# grey, orange, light blue, green, yellow, blue, dark orange, dark magenta
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+dyplr_res$col <- ""
+dyplr_res$col[dyplr_res$is_annotate=="yes" & dyplr_res$is_highlight=="DM-meGene"] <- "a"
+dyplr_res$col[dyplr_res$is_annotate=="yes" & dyplr_res$is_highlight=="meGene + eGene"] <- "b"
+
+axisdf = dyplr_res %>% group_by(SNP_CHR) %>% summarize(center=( max(Chromosome) + min(Chromosome) ) / 2 )
+
+#pdf("Manhattan_plot_2.pdf", width=7.5, height = 4.5, family="ArialMT")
+manhat_plot <- ggplot(dyplr_res, aes(x=Chromosome, y=-log10(pval))) +
+    
+    # Show all points
+    geom_point(aes(color=as.factor(SNP_CHR)), alpha=0.8, size=.25) +
+    scale_color_manual(values = rep(c("grey70", "grey34"), 22 )) +
+    
+    # custom X axis:
+    scale_x_continuous( label = axisdf$SNP_CHR, breaks= axisdf$center ) +
+    scale_y_continuous(expand = c(0, 0), limits=c(5, 23)) +     # remove space between plot area and x axis
+  
+   # Add highlighted points
+    geom_point(data=subset(dyplr_res, is_highlight=="mQTL"), color="#CC79A7", alpha=0.8, size=.25) + #009E73
+    geom_point(data=subset(dyplr_res, is_highlight=="DM-meGene"), color="#009E73", size=2) +
+    geom_point(data=subset(dyplr_res, is_highlight=="meGene + eGene"), color="#0072B2", size=2) +
+  
+    # Add label using ggrepel to avoid overlapping
+    geom_label_repel(data=subset(dyplr_res, is_annotate=="yes"),
+                     aes(label=label, fill = col),
+                     size=3,
+                     color = "white",
+                     force = .2, 
+                     label.padding = .1,
+                     ylim  = c(17,NA),
+                     direction = "y",
+                     segment.size  = 0.08,
+                     fontface = 'bold',
+                     segment.color = "black",
+                     segment.alpha=.6) +
+    scale_fill_manual(values = c("#009E73","#0072B2")) +
+    # Custom the theme:
+    theme_bw() +
+    theme( 
+      legend.position="none",
+      panel.border = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank()
+      )
+#pdf("Manhattan_plot_3.pdf", width=8.5, height = 4.5, family="ArialMT")
+manhat_plot
+#dev.off()
+
+ggsave(file="Manhattan_plot3.pdf", plot=manhat_plot, width=8.5, height=4.5, useDingbats=FALSE)
+```
+

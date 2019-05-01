@@ -1,0 +1,373 @@
+---
+title: "Downstream Analysis of eQTLs"
+author: "Andrew D. Johnston"
+date: "08/22/2018"
+output:
+  html_document:
+  css: styles.css
+toc: yes
+toc_depth: 4
+pdf_document:
+  toc: yes
+word_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+```{r packages,echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+# load in libraries
+library(data.table)
+library(knitr)
+library(ggplot2)
+library(qqman)
+library(tidyr)
+library(dplyr)
+library(ggrepel)
+library(RColorBrewer)
+library(ggthemes)
+library(svglite) 
+
+#setting options
+options(scipen=999, stringsAsFactors = FALSE)
+
+# set directory
+#setwd("/Volumes/home/greally-lab/Deepa_Andrew/eQTL/Validate2/TSS_density")
+```
+
+In order to create manhattan plots, I needed to obtain the nominal pvalues for all eQTLs using QTLtools
+```{bash nominal-code, echo=TRUE, warning=FALSE, message = FALSE, eval = FALSE}
+cd /home/greally-lab/Deepa_Andrew/eQTL/Nominal2
+
+mkdir nominal_10_all
+cd nominal_10_all
+
+for j in $(seq 1 200);
+do
+qsub -S /bin/bash -N eQTL_${j}_chunk_nom -cwd -l h_vmem=5.6G -j y << EOF
+module load QTLtools/1.1/gcc.4.7.4
+QTLtools cis --vcf ../../Genotype2/SplX_converted_noHH_eQTL_snpfilt_hg38_sort.vcf.gz --bed ../../Bams/quants2/Filtered_matrix_gene_rpkm.bed.gz --cov ../Cov_2PC_geno_10PC_gexprs.txt.gz --nominal 1  --chunk $j 200 --out chunk_$j\_200.txt --normal --window 1000000
+EOF
+done
+
+ # combine the permutation files together
+cat chunk_*200.txt > chunk_full.txt
+wc -l chunk_full.txt
+ # 4614267
+ 
+ # removed unsignificant variants in order to create more manageable dataset
+awk '$12  < 0.05' chunk_full.txt > chunk_full_short.txt
+ 
+ 
+>>
+```
+
+I then began to play around with different manhattan plots to visualize the data.
+Coding inspiration from https://www.r-graph-gallery.com/wp-content/uploads/2018/02/Manhattan_plot_in_R.html 
+```{r manhattan_plots, echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+eQTL_results <- fread("../../Nominal2/nominal_10_all/chunk_full_short.txt")
+colnames(eQTL_results) <- c("ENS", "CHR", "TSS", "TSS_2", "Strand", "length", "Distance_to_TSS", "SNP", "SNP_CHR", "SNP_pos", "SNP_pos_2", "pval", "regress_slope", "Top_cis")
+eQTL_results_filt <- eQTL_results[,-c(4,11)]
+
+ # make manhattan plot 
+manhattan(eQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="SNP", p="pval")
+
+# make man plot highlighting the top cis
+eQTL_top_cis_name <- eQTL_results_filt[eQTL_results_filt$Top_cis == 1, c(1,7)]
+eQTL_top_cis_name$name <- paste(eQTL_top_cis_name$ENS,eQTL_top_cis_name$SNP, sep="-")
+eQTL_results_filt$name <- paste(eQTL_results_filt$ENS,eQTL_results_filt$SNP, sep="-")
+manhattan(eQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = eQTL_top_cis_name$name, main="")
+title("Highlighting top cis variant for every gene")
+
+ # highlight SNPs in final curated set
+eQTL_final <- read.table("eQTL_final3_eQTL.bed")
+head(eQTL_final)
+dim(eQTL_final)
+eQTL_final$name <- paste(eQTL_final$V5, eQTL_final$V4, sep="-")
+manhattan(eQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = eQTL_final$name)
+title("Highlighting all eQTLs")
+
+
+ # highlight SNPs that repeat
+sum(duplicated(eQTL_final$V4)) # 154
+name_dups <- eQTL_final[duplicated(eQTL_final$V4),4]
+length(unique(name_dups)) # 136
+dup_eQTL_gene <- eQTL_final[eQTL_final$V4 %in% unique(name_dups), c(4,5)]
+dim(dup_eQTL_gene) #290   2
+head(dup_eQTL_gene) 
+dup_eQTL_gene$name <- paste(dup_eQTL_gene$V5, dup_eQTL_gene$V4, sep="-")
+manhattan(eQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = dup_eQTL_gene$name)
+title("Highlighting eQTLs: influencing more than 1 gene")
+
+# distribution of variants affecting multiple genes (and how many genes they affect)
+table(table(as.character(dup_eQTL_gene$V4)))
+
+# insulin related genes
+# ACACB, FASN, PASK, MLKL, MAP3K11, CBR3, GSR, BDH2, CCT3, CCT, EPHA4, INSR, and IRS1 
+ # highlight the insulin genes that popped out
+goi <- read.table("../../../SMITE_2018/Genes_of_interest.txt")
+head(eQTL_final)
+head(goi)
+goi[12,2] <- "MLKL"
+goi[12,3] <- "ENSG00000168404"
+goi_eQTL <- eQTL_final[substring(eQTL_final$V5,0,15) %in% goi$V3, c(4,5)]
+head(goi_eQTL)
+dim(goi_eQTL) # 53  2
+goi_eQTL$name <- paste(goi_eQTL$V5, goi_eQTL$V4, sep="-")
+manhattan(eQTL_results_filt, chr="SNP_CHR", bp="SNP_pos", snp="name", p="pval", highlight = goi_eQTL$name)
+title("Highlighting eQTLs: associated with insulin signaling")
+```
+
+To create an accurate qqplot, all of the variants must be read-in. 
+
+```{r qq_plots, echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+# load in data
+full_eQTL_results <- fread("../../Nominal2/nominal_10_all/chunk_full.txt")
+colnames(full_eQTL_results) <- c("ENS", "CHR", "TSS", "TSS_2", "Strand", "length", "Distance_to_TSS", "SNP", "SNP_CHR", "SNP_pos", "SNP_pos_2", "pval", "regress_slope", "Top_cis")
+
+ # plot qqplot
+pdf("qqplot_2.pdf", width=4.5, height = 3, family="ArialMT")
+qq(full_eQTL_results$pval)
+dev.off()
+qq(full_eQTL_results$pval)
+```
+
+Now that the data is visualized, let's make some "prettier" manhattan plots. They highlight the different groups of genes that are of interest in the study: genes previously identified in our prior study, those related to the insulin receptor, and thyroglobulin. 
+
+For labeling, I used ggrepel packages. I used the following to sites for help implementing it: https://github.com/slowkow/ggrepel/issues/82 and https://github.com/slowkow/ggrepel/blob/master/vignettes/ggrepel.md
+
+```{r manhattan_plots-2, echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+ # grabbing the RPS27L gene (ENSG00000185088)
+RPS27L_eQTL <- grep("ENSG00000185088", eQTL_final$name, value = TRUE)
+
+ # reading in high confidence genes 
+asthma_genes <- read.table("asthma_related_genes.txt")
+head(asthma_genes)
+# ORMDL3	ENSG00000172057
+# SLFN5	ENSG00000166750
+# NAPRT	ENSG00000147813
+# SPATA20	 ENSG00000006282
+# FADS2	 ENSG00000134824
+# F13A1	 ENSG00000124491
+
+head(eQTL_final)
+asthma_eQTL <- grep(paste(asthma_genes$V2, collapse="|"), eQTL_final$name, value = TRUE)
+head(asthma_eQTL)
+
+asthma_RPS27L_goi_names <- c(goi_eQTL$name,RPS27L_eQTL,asthma_eQTL)
+length(asthma_RPS27L_goi_names)
+
+asthma_RPS27L_goi_eQTL <- eQTL_results_filt[grep(paste(asthma_RPS27L_goi_names, collapse = "|"), 
+                                            eQTL_results_filt$name, value = FALSE) ]
+head(asthma_RPS27L_goi_eQTL)
+dim(asthma_RPS27L_goi_eQTL)
+sum(asthma_RPS27L_goi_eQTL$Top_cis)
+asthma_RPS27L_goi_eQTL_top <- asthma_RPS27L_goi_eQTL[asthma_RPS27L_goi_eQTL$Top_cis>0,]
+dim(asthma_RPS27L_goi_eQTL_top)
+
+sum(eQTL_results_filt$pval<0.001)
+eQTL_results_filt2 <- eQTL_results_filt[eQTL_results_filt$pval <0.001,]
+dim(eQTL_results_filt2)
+
+dyplr_res <- eQTL_results_filt2 %>% 
+  
+  # Compute chromosome size
+  group_by(SNP_CHR) %>% 
+  summarise(chr_len=max(SNP_pos)) %>% 
+  
+  # Calculate cumulative position of each chromosome
+  mutate(tot=cumsum(chr_len)-chr_len) %>%
+  select(-chr_len) %>%
+  
+  # Add this info to the initial dataset
+  left_join(eQTL_results_filt2, ., by=c("SNP_CHR"="SNP_CHR")) %>%
+  
+  # Add a cumulative position of each SNP
+  arrange(SNP_CHR, SNP_pos) %>%
+  mutate(Chromosome=SNP_pos+tot) %>%
+
+ # Add highlight and annotation information
+  mutate( is_highlight=ifelse(name %in% eQTL_final$name, 
+                              ifelse(name %in% goi_eQTL$name, "goi", 
+                                     ifelse(name %in% RPS27L_eQTL, "RPS27L",
+                                            ifelse(name %in% asthma_eQTL, "high_conf", "eQTL")
+                                            )
+                                     )
+                              , "no")) %>%
+  mutate( is_annotate=ifelse(name %in% asthma_RPS27L_goi_eQTL_top$name, "yes", "no")) 
+  
+head(dyplr_res)
+table(dyplr_res$is_highlight)
+table(dyplr_res$is_annotate)
+
+# read in labels
+man_labels <- read.table("Annotation_labels4.txt")
+head(man_labels)
+dim(man_labels)
+dyplr_res$label <- ""
+dim(dyplr_res[dyplr_res$is_annotate=="yes",])
+dyplr_res$label[dyplr_res$is_annotate=="yes"] <- man_labels$V1
+
+# color blind palette 
+ # http://www.cookbook-r.com/Graphs/Colors_(ggplot2)/#a-colorblind-friendly-palette
+# grey, orange, light blue, green, yellow, blue, dark orange, dark magenta
+cbPalette <- c("#999999", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+dyplr_res$col <- ""
+dyplr_res$col[dyplr_res$is_annotate=="yes" & dyplr_res$is_highlight=="goi"] <- "purple"
+dyplr_res$col[dyplr_res$is_annotate=="yes" & dyplr_res$is_highlight=="RPS27L"] <- "orange"
+dyplr_res$col[dyplr_res$is_annotate=="yes" & dyplr_res$is_highlight=="high_conf"] <- "blue"
+
+axisdf = dyplr_res %>% group_by(SNP_CHR) %>% summarize(center=( max(Chromosome) + min(Chromosome) ) / 2 )
+
+#pdf("Manhattan_plot_2.pdf", width=7.5, height = 4.5, family="ArialMT")
+manhat_plot <- ggplot(dyplr_res, aes(x=Chromosome, y=-log10(pval))) +
+    
+    # Show all points
+    geom_point(aes(color=as.factor(SNP_CHR)), alpha=0.8, size=.25) +
+    scale_color_manual(values = rep(c("grey70", "grey34"), 22 )) +
+    
+    # custom X axis:
+    scale_x_continuous( label = axisdf$SNP_CHR, breaks= axisdf$center ) +
+    scale_y_continuous(expand = c(0, 0), limits=c(3, 27)) +     # remove space between plot area and x axis
+  
+   # Add highlighted points
+    geom_point(data=subset(dyplr_res, is_highlight=="eQTL"), color="#CC79A7", alpha=0.8, size=.25) +
+    geom_point(data=subset(dyplr_res, is_highlight=="goi"), color="#D55E00", size=2) +
+    geom_point(data=subset(dyplr_res, is_highlight=="RPS27L"), color="#0072B2", size=2) +
+    geom_point(data=subset(dyplr_res, is_highlight=="high_conf"), color="#009E73", size=2) +
+  
+    # Add label using ggrepel to avoid overlapping
+    geom_label_repel(data=subset(dyplr_res, is_annotate=="yes"),
+                     aes(label=label, fill = col),
+                     size=3,
+                     color = "white",
+                     force = .2, 
+                     label.padding = .1,
+                     ylim  = c(20,NA),
+                     direction = "y",
+                     segment.size  = 0.08,
+                     fontface = 'bold',
+                     segment.color = "black",
+                     segment.alpha=.6) +
+    scale_fill_manual(values = c("#009E73","#0072B2","#D55E00")) +
+    # Custom the theme:
+    theme_bw() +
+    theme( 
+      legend.position="none",
+      panel.border = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.x = element_blank()
+      )
+pdf("Manhattan_plot_5.pdf", width=8.5, height = 4.5, family="ArialMT")
+manhat_plot
+dev.off()
+#ggsave(file="Manhattan_plot4.svg", plot=manhat_plot, width=8.5, height=4.5)
+ggsave(file="Manhattan_plot4.pdf", plot=manhat_plot, width=8.5, height=4.5, useDingbats=FALSE)
+
+ # what genes are the three very small pvalues?
+eQTL_results_filt[head(order(eQTL_results_filt$pval)),]
+
+ # they're not interesting 
+```
+
+
+Creating a QC figure showing the enrichment of eQTLs closer to the TSS of their corresponding genes when compared to all of the tested variants
+
+```{r TSS-enrichment, echo=TRUE, warning=FALSE, message = FALSE, eval = TRUE}
+ # read in eQTLs in eGene bins
+eQTL_bins <- read.table("eQTL_final3_eQTL_eGene_100kbTSS_1kbwin.txt")
+head(eQTL_bins)
+
+eQTL_bins_count <-cbind(table(factor(eQTL_bins[,4], levels=1:200)))
+eQTL_bins_seq <- as.data.frame(cbind(seq(1,200),eQTL_bins_count))
+
+plot(1,1,xlim=c(0,200),ylim=c(0,50),type="n",xlab=" 1kb windows flanking the TSS",
+     ylab="eQTL variants",axes=FALSE)
+axis(side=1,at=c(0,100.5,200),labels=c("-100 Kb","TSS","+100 Kb"))
+axis(side=2)
+box()
+points(rownames(eQTL_bins_seq),eQTL_bins_seq[,2],cex=.5,col="darkgreen")
+lines(smooth.spline(rownames(eQTL_bins_seq),eQTL_bins_seq[,2],spar=.2),col="darkgreen")
+
+# read in all variants in all gene bins
+var_bins <- fread("allVar_allGene_100kbTSS_1kbwin.txt")
+head(var_bins)
+
+var_bins_count <-cbind(table(factor(var_bins$V4, levels=1:200)))
+var_bins_seq <-as.data.frame(cbind(seq(1,200),var_bins_count))
+
+plot(1,1,xlim=c(0,200),ylim=c(0,3000),type="n",
+     xlab=" 1kb windows flanking the \nTSS of all genes",
+     ylab="all variants",axes=FALSE)
+axis(side=1,at=c(0,100.5,200),labels=c("-100 Kb","TSS","+100 Kb"))
+axis(side=2)
+box()
+points(rownames(var_bins_seq),var_bins_seq[,2],cex=.5,col="darkgreen")
+lines(smooth.spline(rownames(var_bins_seq),var_bins_seq[,2],spar=.2),col="darkgreen")
+
+ # normalizing the counts in each bin by counted variants
+sum(var_bins_count)
+head(var_bins_seq)
+var_bins_seq$norm <- var_bins_seq[,2]/sum(var_bins_count)
+
+sum(eQTL_bins_count)
+head(eQTL_bins_seq)
+eQTL_bins_seq$norm <- eQTL_bins_seq[,2]/sum(eQTL_bins_count)
+sum(eQTL_bins_seq$norm)
+
+plot(1,1,xlim=c(0,200),ylim=c(0,0.02),type="n",
+     xlab=" 1kb windows flanking the \nTSS of all genes",
+     ylab="all variants",axes=FALSE)
+axis(side=1,at=c(0,100.5,200),labels=c("-100 Kb","TSS","+100 Kb"))
+axis(side=2)
+box()
+points(rownames(var_bins_seq),var_bins_seq[,3],cex=.5,col="darkgreen")
+lines(smooth.spline(rownames(var_bins_seq),var_bins_seq[,3],spar=.2),col="darkgreen")
+points(rownames(eQTL_bins_seq),eQTL_bins_seq[,3],cex=.5,col="chartreuse2")
+lines(smooth.spline(rownames(eQTL_bins_seq),eQTL_bins_seq[,3],spar=.2),col="chartreuse2")
+
+plot(eQTL_bins_seq$V1, eQTL_bins_seq$norm, type="l", xlab="Distance to QTLs", ylab="#annotations/kb",
+     main="all gene TSSs around eQTLs", col="blue")
+lines(var_bins_seq$V1, var_bins_seq$norm, type="l", col="red")
+
+eQTL_populate <- NULL
+for (i in 1:nrow(eQTL_bins_seq)){
+    eQTL_populate <- c(eQTL_populate, rep(i,eQTL_bins_seq$V2[i]))
+}
+length(eQTL_populate)
+dens_eQTL <- density(eQTL_populate)
+plot(dens_eQTL)
+
+var_populate <- NULL
+for (i in 1:nrow(var_bins_seq)){
+    var_populate <- c(var_populate, rep(i,var_bins_seq$V2[i]))
+}
+
+var_populate_df <- data.frame(name="var", bin=var_populate)
+eQTL_populate_df <- data.frame(name="eQTL", bin=eQTL_populate)
+
+all_pop_df <- rbind(var_populate_df, eQTL_populate_df)
+dim(all_pop_df)
+head(all_pop_df)
+tail(all_pop_df)
+
+dens_plot <- ggplot(all_pop_df, aes(x = bin, colour = name)) +
+        stat_density(position="identity", geom="line") +
+        scale_x_continuous(name = "1kb bins",
+                           breaks = seq(0, 200, 50),
+                           limits=c(0, 200)) +
+        scale_y_continuous(name = "Density") +
+        ggtitle("Density plot of variants around TSS") +
+        theme_tufte() +
+        scale_colour_brewer(palette="Dark2") +
+        theme(plot.title = element_text(size = 14, family = "ArialMT", face = "bold"),
+              text = element_text(size = 12, family = "ArialMT"))
+#pdf("eQTL_var_density_plot_1.pdf", width=4.5, height = 3, family="ArialMT")
+dens_plot
+#dev.off()
+```
+
