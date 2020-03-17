@@ -472,7 +472,7 @@ Using the sample metadata, observe which covariates are contributing the most to
 
 Next I analyzed the PCA data in R (see [PCA_heatmap_analysis2.R](./PCA_heatmap_analysis2.R))
 
-See the [PCA heatmap of expression data](./Figures/PCA_heatmap_gene_expression3)
+See the [PCA heatmap of expression data](./Figures/PCA_heatmap_gene_expression3.pdf)
 
 Expression PC: 1-10?,+13 w/o PC4?
 Geno PC: 1,2
@@ -1280,8 +1280,8 @@ wc -l allVar_allGene_100kbTSS_1kbwin.txt
  # intersect the eQTLs with sig genes
 bedtools intersect -a SigG_12_E_10_manyperm_eGenes_100kbTSS_1kbwin.bed -b eQTL_final3_eQTL.bed -wo > eQTL_final3_eQTL_eGene_100kbTSS_1kbwin.txt
 ```
-see TSS_plots.R and the resulting plots [TSS_allvar_allG.pdf](./Figures/TSS_allvar_allG.pdf) and
-[TSS_eQTL_eGenes.pdf](./Figures/TSS_eQTL_eGenes.pdf)
+see [TSS_plots.R](./Rscripts/TSS_plots.R) and the resulting plots [TSS_allvar_allG.pdf](./Figures/TSS_allvar_allG.pdf) and
+[eQTL_var_density_plot_1.pdf](./Figures/eQTL_var_density_plot_1.pdf)
 
 
 Using QTLtools to get the density of TSSs around eQTLs...
@@ -1325,7 +1325,7 @@ see the plots [eGeneTSS_dens_eQTL.pdf](./Figures/eGeneTSS_dens_eQTL.pdf) and [al
 
 Let's see if QTLs are enriched in enhancer annotations.
 
-I have enhancer enrichments in `ATAC_ens_enh_hg38_no10kb_merged.bed` that were made for annotating the CpGs in differential methylation analysis. See [Compare_annotations.html](../../Annotations/Compare_annotations.html) and [Annotate_enhancers.html](../../Annotations/Annotate_enhancers.html) for information on the enahncer annotations.
+I have enhancer enrichments in `ATAC_ens_enh_hg38_no10kb_merged.bed` that were made for annotating the CpGs in differential methylation analysis. See [Compare_annotations.html](../Annotations/Compare_annotations.html) and [Annotate_enhancers.html](../Annotations/Annotate_enhancers.html) for information on the enahncer annotations.
 
 ```bash
 cd /home/greally-lab/Deepa_Andrew/Deepa-helptagging/CpG_Annotations
