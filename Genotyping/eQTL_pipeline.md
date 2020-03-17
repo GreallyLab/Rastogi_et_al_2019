@@ -11,7 +11,7 @@
 3. [Preparing covariate file](#Covs)
 4. [Preparaing phenotype (expression) file](#)
 5. [Preparing gtf](#gtf)
-6. [](#)
+6. [Preparing the genotype data](#genoprep)
 7. [Explore PCA covariates](#PCA)
 8. [](#)
 9.
@@ -204,11 +204,11 @@ Rscript ~/Programs/mrin-master/cal_mrin.R -k all_samples.KS.mat.txt -s 0.05 -e 0
 EOF
 ```
 
-I then looked for samples that were flagged as being poor quality in more than 1 of the methods. The following samples were identified: A19, A21?, A47, B03, B04, B17, B25, and B52. You can see some plots and the analysis to generate thresholds in Bam_QC.R.
+I then looked for samples that were flagged as being poor quality in more than 1 of the methods. The following samples were identified: A19, A21?, A47, B03, B04, B17, B25, and B52.
 
 <a name="Covs">
 
-2. Preparing the covariate file
+3. Preparing the covariate file
 
 I'm going to be using the first 3 PCs from the genotype data and then a few of the PCs from the expression data. The COV file contains the covariate data in simple TXT format.
 
@@ -221,7 +221,7 @@ Both quantitative and qualitative covariates are supported. Quantitative covaria
 
 <a name="gtf">
 
-3. Preparing the GTF (only going to look at protein coding genes and linc)
+4. Preparing the GTF (only going to look at protein coding genes and linc)
 
 I used the previously filtered GTF created as an intermediate product for the [bam QC](#bamqc) `  gencode.v24.primary_assembly.annotation.lincNprot_fix.gtf`. I had decided to use the gencode v24 gtf because of the chr issue and its what the creators of QTLtools use, so there should not be an error when I try to quantify the reads. Now I just need to gz the file.
 
@@ -233,14 +233,14 @@ The file is found here: `/home/greally-lab/indexes/hg38/GenCode/gencode.v24.prim
 
 <a name="genoprep">
 
-4. Prepare the genotype data
+5. Prepare the genotype data
 
-This was performed in the [MEGA_pipeline3.md](../Genotype\ Filtering/MEGA_pipeline3.md)
+This was performed in the [Genotyping_QC_calling.md](./Genotyping_QC_calling.md)
 
 The finalized VCF file that I'm using is `/home/greally-lab/Deepa_Andrew/eQTL/Genotype2/SplX_converted_noHH_eQTL_snpfilt_hg38_sort.vcf.gz`.
 
 
-The major step of matching the RNAseq files to the genotyped individuals was performed in the [MEGA_pipeline3.md](../Genotype\ Filtering/MEGA_pipeline3.md). All of the mismatched bams need to be properly switched and the unused samples (poor quality and related) need to be removed.
+The major step of matching the RNAseq files to the genotyped individuals was performed in the [Genotyping_QC_calling.md](./Genotyping_QC_calling.md). All of the mismatched bams need to be properly switched and the unused samples (poor quality and related) need to be removed.
 
 With the finalized file I ran PCA on it.
 
@@ -254,11 +254,11 @@ EOF
  	# how does QTLtools choose which SNPs within 50kb to use?
 ```
 
-Next I analyzed the PCA data in R.
+Next I analyzed the PCA data in R (see [PCA_heatmap_analysis2.R](./PCA_heatmap_analysis2.R))
 
 <a name="quant">
 
-5. Quantify gene expression / Preparing the phenotype file
+6. Quantify gene expression / Preparing the phenotype file
 
 I need to quantify gene expression and create a quantification matrix by using the QTLtools quan mode.
 
