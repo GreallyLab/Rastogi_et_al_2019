@@ -4,18 +4,21 @@
 
 ### eQTL preparation and performing eQTL analysis
 
-####Table of Contents
+#### Table of Contents
 
 1. [Preparing Bam files](#prepbam)
 2. [QC of .bam files](#bamqc)
 3. [Preparing covariate file](#Covs)
-4. [Preparaing phenotype (expression) file](#)
-5. [Preparing gtf](#gtf)
-6. [Preparing the genotype data](#genoprep)
+4. [Preparing gtf](#gtf)
+5. [Preparing the genotype data](#genoprep)
+6. [Quantifying gene expression](#quant)
 7. [Explore PCA covariates](#PCA)
-8. [](#)
-9.
+8. [Nominal eQTL pass](#nominal)
+9. [Permutation Passes](#perm)
 
+
+### Annotating eQTLs and downstream analysis
+Jump to [downstream analysis](#annotate)
 
 <a name="prepbam">
 
@@ -80,6 +83,8 @@ done
 ```
 
 <a name="bamqc">
+
+2. BAM QC
 
 I also wanted to assess the transcript integrity of each sample as a QC measure. I used three measures (1) the proportion of protein coding reads (out of total reads), (2) RSeQC's TIN (trasncript integrity) score, and (3) mRIN score, an approach similar to TIN. I had already calculated the proportion of reads counted toward protein coding genes, using the ensembl GTF file `Homo_sapiens.GRCh38.83.gtf`.
 
@@ -253,8 +258,6 @@ EOF
  # --distance 50000 to only consider variant sites separated by at least 50kb
  	# how does QTLtools choose which SNPs within 50kb to use?
 ```
-
-Next I analyzed the PCA data in R (see [PCA_heatmap_analysis2.R](./PCA_heatmap_analysis2.R))
 
 <a name="quant">
 
@@ -467,10 +470,15 @@ EOF
 Using the sample metadata, observe which covariates are contributing the most to the various expression PCs. Visualizing using PCA heatmaps.
 
 
+Next I analyzed the PCA data in R (see [PCA_heatmap_analysis2.R](./PCA_heatmap_analysis2.R))
+
+See the [PCA heatmap of expression data](./Figures/PCA_heatmap_gene_expression3)
+
 Expression PC: 1-10?,+13 w/o PC4?
 Geno PC: 1,2
 cell prop?
 
+<a name="nominal">
 
 8. Nominal eQTL passes
 
@@ -541,6 +549,8 @@ awk '$14==1'  nominals_full.txt | wc -l
 ```
 
 I'm worried that I should be testing using permutation tests so let's see if there's a similar difference.
+
+<a name="perm">
 
 9. Permutation Passes
 
@@ -962,6 +972,8 @@ spass <- read.table("../perm_pc10_cond/eQTL_final3.txt")
 sum(fpass$V1 %in% spass$V1) #443
 ```
 
+<a name="explore">
+
 10. Exploring eQTLs
 
 First let's jsut see if any of the top 11 genes came up.
@@ -1168,10 +1180,20 @@ Are any of these genes also eQTLs? no.
  grep -E 'ENSG00000078124|ENSG00000184381|ENSG00000184640' eQTL_final3.txt
 ```
 
+<a name="annotate">
 
-### Annotating the eQTLs
+# Annotating the eQTLs
 
-#### TSS Density
+#### Table of Contents
+1. [TSS Density](#tss)
+2. [Overlap with enhancers](#enhancer)
+2. [Overlap with other enhancer annotation](#other)
+3. [Overlap with IDEAS enrichment](#ideas)
+4. [Overlap with prior studies](#prior)
+5. [Creating manhattan plots](#manhattan)
+
+<a name="tss">
+1. TSS Density
 
  `SigG_12_E_10_manyperm.txt` is our final eQTL list of 326 genes. Now to make a bed file of the QTLs and the TSSs of the significant eQTLs. I'll also take the ATACseq peaks to look at enrichment.  
 
@@ -1258,8 +1280,8 @@ wc -l allVar_allGene_100kbTSS_1kbwin.txt
  # intersect the eQTLs with sig genes
 bedtools intersect -a SigG_12_E_10_manyperm_eGenes_100kbTSS_1kbwin.bed -b eQTL_final3_eQTL.bed -wo > eQTL_final3_eQTL_eGene_100kbTSS_1kbwin.txt
 ```
-see TSS_plots.R and the resulting plots [TSS_allvar_allG.pdf](TSS_allvar_allG.pdf) and
-[TSS_eQTL_eGenes.pdf](TSS_eQTL_eGenes.pdf)
+see TSS_plots.R and the resulting plots [TSS_allvar_allG.pdf](./Figures/TSS_allvar_allG.pdf) and
+[TSS_eQTL_eGenes.pdf](./Figures/TSS_eQTL_eGenes.pdf)
 
 
 Using QTLtools to get the density of TSSs around eQTLs...
@@ -1295,13 +1317,15 @@ plot((D_Egene$V1+D_Egene$V2)/2, D_Egene$V3, type="l", xlab="Distance to QTLs",
 dev.off()
 ```
 
-see the plots `eGeneTSS_dens_eQTL.pdf` and `allTSS_dens_eQTL.pdf`. both show clear enrichment of eQTLs around TSSs.
+see the plots [eGeneTSS_dens_eQTL.pdf](./Figures/eGeneTSS_dens_eQTL.pdf) and [allTSS_dens_eQTL.pdf](./Figures/allTSS_dens_eQTL.pdf). both show clear enrichment of eQTLs around TSSs.
 
-#### enhancer enrichment
+<a name="enhancer">
+
+2. Overlap with enhancer enrichment
 
 Let's see if QTLs are enriched in enhancer annotations.
 
-I have enhancer enrichments in `ATAC_ens_enh_hg38_no10kb_merged.bed` that were made for annotating the CpGs in differential methylation analysis. See `Compare_annotations.html` and `Annotate_enhancers.html` for information on the enahncer annotations.
+I have enhancer enrichments in `ATAC_ens_enh_hg38_no10kb_merged.bed` that were made for annotating the CpGs in differential methylation analysis. See [Compare_annotations.html](../../Annotations/Compare_annotations.html) and [Annotate_enhancers.html](../../Annotations/Annotate_enhancers.html) for information on the enahncer annotations.
 
 ```bash
 cd /home/greally-lab/Deepa_Andrew/Deepa-helptagging/CpG_Annotations
@@ -1330,8 +1354,9 @@ Enrichment analysis
   * Odd ratio = 1.8383 [2.6468,1.3757]
 ```
 
-#### other enrichments (Ensembl Anno, ATAC)
+<a name="other">
 
+2. Overlap with other enrichments (Ensembl Anno,ATAC)
 
 First I need to get all of the other enrichments. I can take the various annotations in the ensembl regulatory build.
 
@@ -1464,7 +1489,9 @@ EOF
 # * Odd ratio = 2.6262 [4.3395,1.8766]
 ```
 
-#### IDEAS enrichment
+<a name="ideas">
+
+3. IDEAS enrichment
 
 I wanted to have a Segway/ChromHMM track to look for enrichment. I stumbled across the roadmap consortiums "chromHMM" paper where they use a slightly modified algorithm IDEAS to annotate the genome. They show that their algorithm better defines active annotations that are enriched in eQTLs.
 
@@ -2026,7 +2053,8 @@ eQTLs were enriched in the following:
 17 EnhGA
 
 
-12. Overlap with Previous Studies
+<a name="prior">
+4. Overlap with Previous Studies
 
 
 A study looking at autoimmune diseases.
@@ -2080,9 +2108,11 @@ sum(boston_eu$SNP %in% boston_aa$SNP) # 30877 (38237)
 sum(boston_eu$SNP %in% boston_ea$SNP) # 34230/242467 14% (42756)
 ```
 
+<a name="manhattan">
 
-### creating manhattan plots
-in `/home/greally-lab/Deepa_Andrew/eQTL/Validate2/TSS_density`
+5. Creating manhattan plots
+
+Creating manhattan plots in `/home/greally-lab/Deepa_Andrew/eQTL/Validate2/TSS_density`
 make Knit_manhat_eQTL.R file
 ```
 library(knitr)
@@ -2099,3 +2129,5 @@ cd /home/greally-lab/Deepa_Andrew/eQTL/Validate2/TSS_density
 R CMD BATCH --no-restore Knit_manhat_eQTL.R
 EOF
 ```
+
+see the Rmarkdown results in [HTML](eQTL_downstream_analysis2.html)
