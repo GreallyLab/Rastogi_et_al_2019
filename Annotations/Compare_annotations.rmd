@@ -1,0 +1,190 @@
+---
+title: "Comparing enhancer datasets"
+author: "Andrew Johnston"
+date: "11/03/2017"
+output:
+  html_document:
+  css: styles.css
+toc: yes
+toc_depth: 4
+pdf_document:
+  toc: yes
+word_document: default
+---
+
+```{r packages, echo=TRUE, warning=FALSE, message = FALSE}
+# load in libraries
+library(data.table)
+library(ggplot2)
+library(ggthemes)
+library(eulerr)
+
+# set options
+options(scipen=999, stringsAsFactors = FALSE)
+setwd("/Volumes/home/greally-lab/Deepa_Andrew/Deepa-helptagging/CpG_Annotations/")
+```
+
+
+For CD4 T cells, there were a few options. 
+
+1) Enhancer annotations based off Roadmap ChIP-seq data. 
+
+2 ) The ATACseq peaks as called in:
+Buenrostro, J. D., Giresi, P. G., Zaba, L. C., Chang, H. Y., & Greenleaf, W. J. (2013). Transposition of native chromatin for fast and sensitive epigenomic profiling of open chromatin, DNA-binding proteins and nucleosome position. Nature Methods, 10(12), 1213–1218. http://doi.org/10.1038/nmeth.2688
+
+
+```{r load-enhancer-sets, echo=TRUE, warning=FALSE, message = FALSE}
+# roadmap enhancers 
+road_enh <- read.table("Final_Enhancer_hg38.bed")
+road_enh <- as.data.frame(road_enh)
+road_enh$length <- road_enh$V3 - road_enh$V2
+road_enh$name <- "road"
+
+# CD4 ATAC enh 
+ATAC_enh <- read.table("CD4_ATAC_peaks_hg38_noProm.bed")
+ATAC_enh$length <- ATAC_enh$V3 - ATAC_enh$V2
+ATAC_enh$name <- "ATAC"
+
+# Ensembl enh 
+ens_enh <- read.table("ensembl_enhancer_hg38.bed")
+ens_enh$length <- ens_enh$V3 - ens_enh$V2
+ens_enh$name <- "ens"
+
+# create a data frame of all of the lengths plus the dataset they came from
+road_ATAC_ens_enh_length <- rbind(road_enh[,7:8], ATAC_enh[,7:8], ens_enh[,7:8])
+
+# graph the distribution of the lengths
+ggplot(data = road_ATAC_ens_enh_length, aes(y=length, x=name, col=name)) +
+  geom_violin() +
+  theme_tufte() +
+  ggtitle("Distribution of annotation length")
+
+# look at the summary statistics 
+summary(road_enh$length)
+summary(ATAC_enh$length)
+sum((ATAC_enh$length<10000)) # 31703
+length(ATAC_enh$length) # 31709, so only 4 above 10 Kb. Will remove these in the final enhancer set
+summary(ens_enh$length)
+```
+Based on the summary of length, the ensembl enhancers look the most convincing. 
+
+The following code creates an euler plot of the overlap of basepairs among the different enhancer sets. 
+```{r euler-plot,echo=TRUE, warning=FALSE, message = FALSE}
+# this is the scratch to find the different areas within the graph.
+12051108-649154
+5028581-649154
+165231936-11401954-4379427- 649154
+
+1011296-649154
+19407555-11401954-362142 - 649154
+
+23429470 - 4379427 - 362142 -649154
+
+overlaps <- euler(c("Roadmap" = 148801401, "ATAC" = 6994305, "Ensembl" = 18038747,
+               "Roadmap&ATAC" = 11401954, "Roadmap&Ensembl" = 4379427, 
+               "ATAC&Ensembl" = 362142, "Roadmap&ATAC&Ensembl" = 649154),
+             shape = "ellipse")
+# how good is the fit of the shapes? lower values are better. 
+overlaps$stress
+overlaps$diagError
+
+# plot the euler figure
+plot(overlaps, main="Basepair overlap")
+```
+
+```{r CpG-load,echo=TRUE, warning=FALSE, message = FALSE}
+# load in the pvalues for CpG methylation between the two groups
+CpGs <- fread("../../SMITE_10_2017/11-2017-meth_for_smite_angleadj_mean_anglea.txt")
+CpGs <- as.data.frame(CpGs)
+dim(CpGs) # 1433614 4
+head(CpGs)
+hist(CpGs$p.value)
+
+# the qvalues doesn't give a great distribution for determining differences among enhancer sets
+library(qvalue)
+hist(qvalue(CpGs$p.value)$qvalue)
+```
+
+Now to read in the intersection of the different enhancer sets with CpGs and then to look at the density of the pvalues within each annotation. Ideally, the distribution should be uniform between 0 and 1, but there's a peak around .6 as seen in the pvalues from the 
+```{r CpG-intersections,echo=TRUE, warning=FALSE, message = FALSE}
+# CpG_inter_road
+CpG_inter_road <- fread("CpG_inter_Road.bed")
+CpG_inter_road <- as.data.frame(CpG_inter_road)
+head(CpG_inter_road)
+CpGs_road_wPos <- merge(x= CpGs, y= CpG_inter_road, by.x="X.tid", by.y = "V4")
+head(CpGs_road_wPos)
+nrow(CpGs_road_wPos) # 196284
+summary(CpGs_road_wPos$p.value)
+hist(CpGs_road_wPos$p.value)
+CpGs_road_wPos$Type <- "Roadmap"
+
+# CpG_inter_ATAC
+CpG_inter_ATAC <- fread("CpG_inter_ATAC.bed")
+CpG_inter_ATAC <- as.data.frame(CpG_inter_ATAC)
+head(CpG_inter_ATAC)
+CpGs_ATAC_wPos <- merge(x= CpGs, y= CpG_inter_ATAC, by.x="X.tid", by.y = "V4")
+head(CpGs_ATAC_wPos)
+nrow(CpGs_ATAC_wPos) # 41923
+summary(CpGs_ATAC_wPos$p.value)
+hist(CpGs_ATAC_wPos$p.value)
+CpGs_ATAC_wPos$Type <- "ATAC"
+
+# CpG_inter_ens
+CpG_inter_ens <- fread("CpG_inter_ens.bed")
+CpG_inter_ens <- as.data.frame(CpG_inter_ens)
+head(CpG_inter_ens)
+CpGs_ens_wPos <- merge(x= CpGs, y= CpG_inter_ens, by.x="X.tid", by.y = "V4")
+head(CpGs_ens_wPos)
+nrow(CpGs_ens_wPos) # 16835
+summary(CpGs_ens_wPos$p.value)
+hist(CpGs_ens_wPos$p.value)
+CpGs_ens_wPos$Type <- "Ensembl"
+
+# CpG_inter_ens_TF
+CpG_inter_ens_TF <- fread("CpG_inter_ens_TF.bed")
+CpG_inter_ens_TF <- as.data.frame(CpG_inter_ens_TF)
+head(CpG_inter_ens_TF)
+CpGs_ens_TF_wPos <- merge(x= CpGs, y= CpG_inter_ens_TF, by.x="X.tid", by.y = "V4")
+head(CpGs_ens_TF_wPos)
+nrow(CpGs_ens_TF_wPos) # 16835
+summary(CpGs_ens_TF_wPos$p.value)
+hist(CpGs_ens_TF_wPos$p.value)
+CpGs_ens_TF_wPos$Type <- "Ensembl_TF"
+
+CpG_inter_anno <- rbind(CpGs_road_wPos[,c(4,10)], CpGs_ATAC_wPos[,c(4,10)],
+                        CpGs_ens_wPos[,c(4,10)], CpGs_ens_TF_wPos[,c(4,10)])
+
+# plot the denisty graph of the pvalues of CpGs found within each annotation set.
+ggplot(data=CpG_inter_anno, aes(x=p.value, col=Type)) +
+  geom_density() +
+  theme_tufte() +
+  ggtitle("Distribution of pvalues (from Fisher's exact)\n in the different enhancer annotations")
+```
+The ensembl annotation is more enriched in "diff" methylated CpGs.
+
+Now I'll make the final list of enhancer annotations as the combination of the ATAC marks as well as the emsembl enhancer annotation. I won't use the ensembl TF binding annotation because there's no annotation as to what the TFs are. I also will filter out any annotations longer than 10kb. 
+```{r make-final-anno,echo=TRUE, warning=FALSE, message = FALSE}
+# filter out those higher than 10kb and remove extraneous columns
+ATAC_enh_10kb <- ATAC_enh[ATAC_enh$length<=10000,1:6]
+ens_enh_10kb <- ens_enh[ens_enh$length<=10000,1:6]
+
+ATAC_ens_enh <- rbind(ATAC_enh_10kb,ens_enh_10kb)
+write.table(ATAC_ens_enh,"ATAC_ens_enh_hg38_no10kb.bed", append = F, quote = F, 
+            row.names = F, col.names = F, sep = "\t")
+
+# read in the intersection of the final annotation and CpGs
+ATAC_ens_CpG_intersect <- read.table("ATAC_ens_CpG_intersect.txt")
+dim(ATAC_ens_CpG_intersect)
+head(ATAC_ens_CpG_intersect)
+ATAC_ens_CpG_intersect_2 <- ATAC_ens_CpG_intersect[,c(4,10)]
+
+# remove the old ATAC and enhancer annotation
+CpG_pos_2 <- CpG_pos[,-c(6:7)]
+# merge the new annotation with the old annotation
+CpG_pos_enh <- merge(x = CpG_pos_2, y = ATAC_ens_CpG_intersect_2, all.x = TRUE, by.x = "X.tid",
+                     by.y = "V10")
+
+colnames(CpG_pos_enh)[6] <- "Enhancer"
+write.table(CpG_pos_enh, "CpGID_Prom_GB_Enh2_annot.txt", append = F, quote = F,
+            col.names = T, row.names = F, sep = "\t", na = "NA")
+```
